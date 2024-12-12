@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>查询历史</title>
+</head>
+<body>
+    <h1>查询历史</h1>
+    
+    {% if logs %}
+        <ul>
+            {% for log in logs %}
+                <li>{{ log }}</li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>没有查询记录。</p>
+    {% endif %}
+    
+    <a href="/">返回首页</a>
+</body>
+</html>

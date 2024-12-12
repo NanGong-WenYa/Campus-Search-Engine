@@ -1,331 +1,136 @@
-import csv
-import jieba
-import re
-import networkx as nx
-from selenium import webdriver
-
-import lxml.html as lh
+import aiohttp
+import asyncio
 from bs4 import BeautifulSoup
-import urllib.request
-import time
-
-from urllib.parse import urljoin  # 在模块顶部增加这个导入
-
-# 初始化全局变量
-urllist = dict()
-pageranks = dict()
-g = nx.DiGraph()
-
-# 写入表头（确保表头只写一次）
-with open('urls.csv', 'w', newline='', encoding='utf-8') as f:
-    writer = csv.writer(f)
-    writer.writerow(['url'])  # 写入表头
-
-
-
-def getPageUrl(url):
-    try:
-        html_data = urllib.request.urlopen(url, timeout=10)
-        html = html_data.read().decode("utf-8")
-    except Exception as e:
-        print(f"Error fetching URL {url}: {e}")
-        urllist[url] = 2  # 标记为错误
-        return
-
-    if not g.has_node(url):
-        g.add_node(url)
-
-    soup = BeautifulSoup(html, features='html.parser')
-    tags = soup.find_all('a')
-
-    with open('urls.csv', 'a', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        for tag in tags:
-            href = tag.get('href')
-            if href is None or href == '' or href.startswith('#'):
-                continue
-            if href == "/" or "javascript:" in href:
-                continue
-
-            # 处理相对路径，使用 urljoin 进行标准化
-            href = urljoin(url, href)
-
-            # 保存到 urllist 和文件中
-            if href not in urllist and "nankai.edu.cn" in href:
-                urllist[href] = 0
-                writer.writerow([href])  # 写入 URL 到文件
-            if not g.has_node(href):
-                g.add_node(href)
-            if not g.has_edge(url, href):
-                g.add_edge(url, href)
-
-    urllist[url] = 1
-
-# def getPageUrl(url):
-#     try:
-#         html_data = urllib.request.urlopen(url, timeout=10)
-#         html = html_data.read().decode("utf-8")
-#     except Exception as e:
-#         print(f"Error fetching URL {url}: {e}")
-#         urllist[url] = 2  # 标记为错误
-#         return
-
-#     if not g.has_node(url):
-#         g.add_node(url)
-
-#     soup = BeautifulSoup(html, features='html.parser')
-#     tags = soup.find_all('a')
-
-#     with open('urls.csv', 'a', newline='', encoding='utf-8') as f:
-#         writer = csv.writer(f)
-#         for tag in tags:
-#             href = tag.get('href')
-#             if href is None or href == '' or href.startswith('#'):
-#                 continue
-#             if href == "/" or "javascript:" in href:
-#                 continue
-
-#             # 处理相对路径
-#             if "http" not in href:
-#                 if href.startswith('//'):
-#                     href = "http:" + href
-#                 elif href.startswith('/'):
-#                     href = url.split('/')[0] + '//' + url.split('/')[2] + href
-#                 else:
-#                     href = url.split('/')[0] + '//' + url.split('/')[2] + '/' + href
-
-#             # 保存到 urllist 和文件中
-#             if href not in urllist and "nankai.edu.cn" in href:
-#                 urllist[href] = 0
-#                 writer.writerow([href])  # 写入 URL 到文件
-#             if not g.has_node(href):
-#                 g.add_node(href)
-#             if not g.has_edge(url, href):
-#                 g.add_edge(url, href)
-
-#     urllist[url] = 1
-
-
-def getAllUrl(rootUrl, urllimit=150):
-    getPageUrl(rootUrl)
-    urllist[rootUrl] = 1
-
-    while 0 in urllist.values():
-        for url in list(urllist.keys()):
-            if urllist[url] == 2:
-                continue
-            if urllist[url] == 0:
-                getPageUrl(url)
-                time.sleep(1)  # 延时 1 秒，避免爬取过快被封禁
-            if len(urllist) >= urllimit:
-                return
-
-
-def PageRank():
-    # 计算图的 PageRank
-    return nx.algorithms.link_analysis.pagerank(g)\
-    
-
-import pandas as pd
-import re
-import requests
-from bs4 import BeautifulSoup
-from datetime import datetime
-import jieba
-import jieba.analyse
 from urllib.parse import urljoin
+import jieba
+import re
+import csv
+import networkx as nx
 
-# 读取URL列表
-urls_csv = "urls.csv"
-output_csv = "output.csv"
-
-# DataFrame初始化
-columns = ["url", "title", "description", "date_timestamp", "content", "editor"]
-df = pd.DataFrame(columns=columns)
-
-# 存储页面中包含的URL的字典
-url_links_dict = {}
-
-# 特殊字符替换函数
-def clean_text(text):
-    return re.sub(r'[\r\n\t\u00a0]', ' ', text).strip()
-
-# 提取日期格式并转换为时间戳
-def extract_timestamp(date_str):
-    match = re.search(r'(\d{4}/\d{2}/\d{2})', date_str)
-    if match:
-        return int(datetime.strptime(match.group(1), "%Y/%m/%d").timestamp())
-    
-    return None
-
-# 删除标点符号并排除网址内容的函数
-def remove_punctuation_and_urls(text):
-    # 移除标点符号
-    text = re.sub(r'[^\w\s]', '', text)
-    # 移除URL
-    text = re.sub(r'(http[s]?://\S+|www\.\S+)', '', text)
-    return text.strip()
-
-# 处理内容和编辑者分离
-def split_content(content):
-    editor_info = ""
-    if "编辑" in content:
-        content_parts = content.split("编辑", 1)
-        content = content_parts[0].strip()
-        editor_info = content_parts[1].strip()
-    return content, editor_info
-
-# 对文本分词
-jieba.setLogLevel(jieba.logging.INFO)
-def process_text(text):
-    # 清理文本中的标点符号和URL
-    text = remove_punctuation_and_urls(text)
-    # 分词
-    words = jieba.cut_for_search(text)
-    # 返回分词结果
-    return " ".join([word.strip() for word in words if word.strip()])
+def remove_copyright(text):
+    """Remove copyright information in xs.nankai pages."""
+    copyright_text = "Copyright © 2020 南开大学 津教备0061号   津ICP备12003308号-1津公网安备12010402000967号"
+    return text.replace(copyright_text, "")
 
 
-root_url = "https://www.nankai.edu.cn"
-getAllUrl(root_url)
+def remove_punctuation(text):
+    """Remove punctuation using regular expressions."""
+    return re.sub(r'[^\w\s]', '', text)
 
-# 请求和解析HTML
-for index, row in pd.read_csv(urls_csv).iterrows():
-    url = row['url']
+
+async def fetch_page(url, session):
+    """Fetch the page content asynchronously."""
     try:
-        response = requests.get(url, timeout=10)
-        response.encoding = response.apparent_encoding
-        soup = BeautifulSoup(response.text, 'html.parser')
-
-        # 提取title
-        title = soup.title.string if soup.title else ""
-        title = title.replace("/", "_") if title else ""
-
-        # 提取description
-        description_meta = soup.find('meta', attrs={'name': 'description'})
-        description = description_meta['content'] if description_meta else ""
-
-        # 提取正文内容
-        content = " ".join([p.get_text() for p in soup.find_all('p')])
-        content = clean_text(content)
-
-        # 分离内容和编辑信息
-        content, editor = split_content(content)
-
-        # 提取发布时间
-        date_meta = soup.find('meta', attrs={'name': 'date'})
-        date_str = date_meta['content'] if date_meta else ""
-        date_timestamp = extract_timestamp(date_str)
-
-        # 分词处理
-        title = process_text(title)
-        description = process_text(description)
-        content = process_text(content)
-
-        # 提取页面中包含的URL
-        links = [urljoin(url, a['href']) for a in soup.find_all('a', href=True)]
-        url_links_dict[url] = links
-
-        # 添加到DataFrame
-        df = pd.concat([
-            df,
-            pd.DataFrame({
-                "url": [url],
-                "title": [title],
-                "description": [description],
-                "date_timestamp": [date_timestamp],
-                "content": [content],
-                "editor": [editor]
-            })
-        ], ignore_index=True)
-
+        async with session.get(url, timeout=10) as response:
+            if response.status == 200:
+                return await response.text()
+            else:
+                print(f"Failed to fetch {url}, status: {response.status}")
+                return None
     except Exception as e:
-        print(f"Error processing URL {url}: {e}")
-
-# 保存结果
-df.to_csv(output_csv, index=False)
-
-# 保存URL链接字典
-import json
-with open("url_links.json", "w", encoding="utf-8") as f:
-    json.dump(url_links_dict, f, ensure_ascii=False, indent=4)
+        print(f"Error fetching {url}: {e}")
+        return None
 
 
+def parse_page(html, url):
+    """Parse title and body content based on the URL type."""
+    soup = BeautifulSoup(html, 'html.parser')
 
-# import re
-# import jieba
-# from selenium import webdriver
-# from lxml import etree
+    # Extract title
+    title = soup.find('title').get_text(strip=True) if soup.find('title') else 'No title'
 
-# def get_text(url):
-#     options = webdriver.ChromeOptions()
-#     options.add_argument('--headless')
-#     options.add_argument('--no-sandbox')
-#     options.add_argument('--disable-dev-shm-usage')
-#     driver = webdriver.Chrome(options=options)
+    # Extract body text based on URL
+    if 'news.nankai' in url:
+        body = soup.find('td', id='txt')
+        body_text = '\n'.join(p.get_text(strip=True) for p in body.find_all('p')) if body else ""
+    elif 'xs.nankai' in url:
+        body_text = '\n'.join(p.get_text(strip=True) for p in soup.find_all('p'))
+        body_text = remove_copyright(body_text)  # Remove copyright text for xs.nankai pages
+    else:
+        body_text = ""
 
-#     try:
-#         driver.get(url)
-#         html_source = driver.page_source
-#         name = driver.title
-#         driver.quit()
-#     except Exception as e:
-#         print(f"Error accessing URL {url}: {e}")
-#         driver.quit()
-#         return '', ''
+    # Perform jieba segmentation
+    segmented_body = jieba.lcut_for_search(body_text) if body_text else []
+    clean_segmented_body = " ".join(remove_punctuation(word) for word in segmented_body)
 
-#     try:
-#         # 使用 lxml 解析 HTML
-#         html = lh.fromstring(html_source)
-        
-#         # 使用 XPath 提取目标文本
-#         texts = html.xpath("//p//text()|//h1//text()|//h2//text()|//h3//text()|//br//text()|//b//text()")
-        
-#         # 使用正则表达式清理前后空白字符和换行符
-#         cleaner = re.compile(r"^\s+|\s+$|\n")
-#         cleaned_texts = [cleaner.sub("", text) for text in texts if text.strip()]  # 去除空内容
-        
-#         # 将清理后的文本拼接成单个字符串
-#         filtered_text = ' '.join(cleaned_texts)
-        
-#         # 使用 jieba 分词
-#         segmented_text = " ".join(jieba.cut(filtered_text))
-#     except Exception as e:
-#         print(f"Error processing HTML content: {e}")
-#         return name, ''
-
-#     return name, segmented_text
+    return {'title': title, 'segmented_body': clean_segmented_body}
 
 
-
-# def save_to_final_csv(url, title, segmented_text, pagerank):
-#     with open('combined_result.csv', 'a', newline='', encoding='utf-8') as f:
-#         writer = csv.writer(f)
-#         writer.writerow([url, title, segmented_text, pagerank])
-
-
-# def process_urls_from_csv():
-#     pageranks = PageRank()
-
-#     with open('urls.csv', 'r', newline='', encoding='utf-8') as f:
-#         reader = csv.reader(f)
-#         rows = list(reader)
-
-#         if not rows:
-#             print("urls.csv 文件为空")
-#             return
-#         if len(rows) == 1:
-#             print("urls.csv 只有表头，没有数据行")
-#             return
-
-#         for row in rows[1:]:
-#             url = row[0]
-#             title, segmented_text = get_text(url)
-#             pagerank = pageranks.get(url, 0)
-#             save_to_final_csv(url, title, segmented_text, pagerank)
+def is_valid_url(url):
+    """Check if a URL is valid for crawling."""
+    return (
+        ('news.nankai' in url or 'xs.nankai' in url) and
+        not url.lower().endswith(('.pdf', '.doc', '.docx', '.xls', '.xlsx', '.zip', '.rar', '.mp4', 'jpg', 'png'))
+    )
 
 
-# # 主程序入口
-# root_url = "https://www.nankai.edu.cn"
-# getAllUrl(root_url)
-# process_urls_from_csv()
+async def crawl_website(seed_url, max_pages=50):
+    """Crawl both News and 校史 pages asynchronously."""
+    visited = set()
+    queue = [seed_url]
+    data = []
+    graph = nx.DiGraph()
+    page_count = 0
+
+    async with aiohttp.ClientSession() as session:
+        while queue and page_count < max_pages:
+            url = queue.pop(0)
+            if url in visited or not is_valid_url(url):
+                continue
+
+            visited.add(url)
+            print(f"Crawling page {page_count + 1}: {url}")
+            html = await fetch_page(url, session)
+            if not html:
+                continue
+
+            # Parse the current page
+            page_data = parse_page(html, url)
+            if page_data:
+                page_data['url'] = url  # Add URL for PageRank mapping
+                data.append(page_data)
+                graph.add_node(url)
+
+            # Extract links for the next pages
+            soup = BeautifulSoup(html, 'html.parser')
+            for link in soup.find_all('a', href=True):
+                full_url = urljoin(url, link['href'])
+                if is_valid_url(full_url) and full_url not in visited:
+                    queue.append(full_url)
+                    graph.add_edge(url, full_url)
+
+            page_count += 1
+
+    return data, graph
+
+
+def save_to_csv(data, filename):
+    """Save parsed data to a CSV file."""
+    with open(filename, 'w', encoding='utf-8', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=['url', 'title', 'segmented_body', 'pagerank'])
+        writer.writeheader()
+        writer.writerows(data)
+
+
+async def main():
+    # Start crawling from a single seed URL
+    seed_url = "https://news.nankai.edu.cn/"
+    max_pages = 100500
+
+    print("Starting to crawl websites containing 'news' or 'xs.nankai'...")
+    data, graph = await crawl_website(seed_url, max_pages)
+
+    # Calculate PageRank
+    pagerank = nx.pagerank(graph)
+
+    # Add PageRank to data
+    for item in data:
+        item['pagerank'] = pagerank.get(item['url'], 0)
+
+    # Save to CSV
+    save_to_csv(data, 'news_data.csv')
+    print("All data saved to news_data.csv")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
